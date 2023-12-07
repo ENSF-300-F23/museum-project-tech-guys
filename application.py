@@ -68,6 +68,173 @@ def guest_view(cur):
             continue
                   
 
+def get_table_names(cur):
+    cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'ARTMUSEM'")
+    return [table[0] for table in cur.fetchall()]
+
+def display_table(cur, table_name):
+    try:
+        cur.execute(f'SELECT * FROM {table_name}')
+        print(f'Table {table_name}:\n')
+        display_data(cur)
+    except mysql.connector.Error as err:
+        print(f"Something went wrong: {err}")
+
+def add_data(cur, table_name):
+    try:
+        cur.execute(f'SELECT * FROM {table_name}')
+        display_table(cur, table_name)
+
+        values = []
+        for desc in cur.description:
+            print(f'Please enter data to add to column {desc[0]}:')
+            note = 'Note: Attribute may not be NULL' if desc[6] == 0 else 'Note: If left empty, attribute will default to NULL'
+            print(note)
+            values.append(input())
+
+        unpacked_values = ", ".join(["'" + value + "'" for value in values])
+        cur.execute(f'INSERT INTO {table_name} VALUES ({unpacked_values})')
+
+        display_table(cur, table_name)
+    except mysql.connector.Error as err:
+        print(err)
+
+def modify_data(cur, table_name):
+    try:
+        cur.execute(f'SELECT * FROM {table_name}')
+        display_table(cur, table_name)
+
+        attributes = [desc[0] for desc in cur.description]
+        print(f'The attributes in {table_name} are: {", ".join(attributes)}')
+        
+        attrib = input('\nWhich attribute would you like to modify (case-sensitive):\n')
+        while attrib not in attributes:
+            attrib = input('\nInvalid entry. Attribute does not exist.\nWhich attribute would you like to modify: ')
+        
+        cur.execute(f'SELECT {attrib} FROM {table_name}')
+        
+        condition_attrib = input(f'Please select a conditional attribute from the {table_name} table: ')
+        while condition_attrib not in attributes:
+            condition_attrib = input(f'\nInvalid entry. Conditional attribute does not exist.\nPlease select a conditional attribute from the {table_name} table: ')
+
+        condition = input(f'Please select a value from the {condition_attrib} column associated with the modification of {attrib}\n(Note: If the value chosen is not from the column, nothing will be modified):\n')
+        new_value = input(f'Please enter the new value for {attrib}: ')
+
+        cur.execute(f"UPDATE {table_name} SET {attrib} = '{new_value}' WHERE {condition_attrib} = '{condition}'")
+        display_table(cur, table_name)
+
+    except mysql.connector.Error as err:
+        print(err)
+
+def delete_data(cur, table_name):
+    try:
+        cur.execute(f'SELECT * FROM {table_name}')
+        display_table(cur, table_name)
+
+        attributes = [desc[0] for desc in cur.description]
+        print(f'The attributes in {table_name} are: {", ".join(attributes)}')
+
+        attrib = input('\nWhich attribute would you like to use as a condition to delete:\n')
+        while attrib not in attributes:
+            attrib = input('\nInvalid entry. Attribute does not exist.\nWhich attribute would you like to use as a condition to delete: ')
+
+        condition = input(f'Which value from {attrib} would you like to use as your condition for deletion?\nDeleting rows when {attrib} = ')
+        cur.execute(f"DELETE FROM {table_name} WHERE {attrib} = '{condition}'")
+        display_table(cur, table_name)
+
+    except mysql.connector.Error as err:
+        print(err)
+
+def employee_view(cur):
+    while True:
+        print('\nWould you like to add new data, modify existing data, delete data, display data, or quit?')
+        print('1 - Add Data')
+        print('2 - Modify Existing Data')
+        print('3 - Delete Data')
+        print('4 - Display Data')
+        print('5 - Quit')
+
+        choice = input('Please enter your decision: ')
+        while choice not in ['1', '2', '3', '4', '5']:
+            choice = input('Please select a valid choice: ')
+
+        if choice == '1':
+            print('\nAvailable tables to add data are:\n')
+            options = get_table_names(cur)
+            print(*options, sep=', ')
+            Table = input('Which table would you like to add data to: ')
+            while Table not in options:
+                Table = input('\nInvalid entry. Table does not exist.\nWhich table would you like to add data to: ')
+            add_data(cur, Table)
+
+        elif choice == '2':
+            print('Note: All inputs are case sensitive.')
+            print('\nAvailable tables to modify: ')
+            options = get_table_names(cur)
+            print(*options, sep=', ')
+            Table = input('Which table would you like to modify: ')
+            while Table not in options:
+                Table = input('\nInvalid entry. Table does not exist.\nWhich table would you like to modify: ')
+            modify_data(cur, Table)
+
+        elif choice == '3':
+            print('\nAvailable tables are:')
+            options = get_table_names(cur)
+            print(*options, sep=', ')
+            Table = input('\nPlease enter the name of the table you want to delete from:')
+            while Table not in options:
+                Table = input('\nInvalid entry. Table does not exist.\nWhich table would you like to delete from: ')
+            delete_data(cur, Table)
+
+        elif choice == '4':
+            print('Available tables are:\n')
+            options = get_table_names(cur)
+            print(*options, sep=', ')
+            Table = input('\nPlease enter the name of the table you want to view: ')
+            display_table(cur, Table)
+
+        elif choice == '5':
+            print('Thank you for using our database!')
+            exit()
+
+    
+
+def execute_single_command(cur):
+    while True:
+        query = input('\nPlease enter the SQL command that you want to execute: ')
+        try:
+            cur.execute(query)
+            querysplit = query.split()
+            if querysplit[0] == 'SELECT':
+                display_data(cur)
+        except mysql.connector.Error as e:
+            print(e)
+        cont = input('Would you like to execute another command?\nY for yes, anything else for no: ')
+        if cont.lower() != 'y':
+            break
+
+def execute_sql_script(cur):
+    while True:
+        print('\nPlease enter the directory and file name of the script you want to run:')
+        print('NOTE: Please enter the directory and filename WITHOUT any quotation marks.')
+        filepath = input()
+        try:
+            with open(filepath, 'r') as file:
+                sqlFile = file.read()
+                sqlCommands = sqlFile.split(';')
+
+                for command in sqlCommands:
+                    try:
+                        if command.strip() != '':
+                            cur.execute(command)
+                    except mysql.connector.Error as msg:
+                        print("Command skipped: ", msg)
+        except FileNotFoundError:
+            print("File not found. Please enter a valid file path.")
+
+        cont = input('Would you like to execute another file? Y for yes, anything else for no: ')
+        if cont.lower() != 'y':
+            break
 
 def admin_view(cur):
     while True:
@@ -127,7 +294,8 @@ if __name__ == "__main__":
 
     if user_selection == '3':
         guest_view(cur)
-    
+    elif user_selection == '2':
+        employee_view(cur)
     elif user_selection == '1':
         admin_view(cur)
 
